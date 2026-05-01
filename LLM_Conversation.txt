@@ -1,0 +1,100 @@
+Me: I have many files of sample spam and sample spam They are names such as 0002.b3120c4bcbf3101e661161ee7efcb8bf
+I am creating a model to separate spam vs ham.
+Just start me off with importing each of these folders with the files as rows in two dataframes One for spam, one of ham.
+In R.
+
+Chatgpt:That error means R is trying to open just the filename (e.g. `"0001.ea7e..."`) instead of the **full path**, so it can’t find the file.
+
+This usually happens when `list.files()` is not returning full paths.
+
+---
+
+## Fix: force full file paths
+
+Update your function like this:
+
+```r
+load_emails_from_folder <- function(folder_path, label) {
+  
+  files <- list.files(folder_path, full.names = TRUE)
+  
+  df <- tibble(
+    filename = basename(files),
+    text = purrr::map_chr(files, function(f) {
+      paste(readLines(f, warn = FALSE), collapse = "\n")
+    }),
+    label = label
+  )
+  
+  return(df)
+}
+```
+
+---
+
+## Why this fixes it
+
+* `full.names = TRUE` → gives `"data/spam/0001..."` instead of just `"0001..."`
+* `readLines(f)` → now gets the correct full path
+
+---
+
+## Quick sanity check (do this before loading)
+
+Run this:
+
+```r
+list.files("data/spam")[1:5]
+list.files("data/spam", full.names = TRUE)[1:5]
+```
+
+You should see:
+
+* first line → just filenames
+* second line → full paths
+
+If the second one still looks wrong, your folder path is the issue.
+
+---
+
+## Common gotcha (very likely)
+
+If your files are in your working directory, you might need:
+
+```r
+getwd()
+```
+
+Then either:
+
+* move your folders inside that directory
+  **or**
+* use absolute paths, e.g.:
+
+```r
+spam_df <- load_emails_from_folder("C:/Users/YourName/data/spam", 1)
+```
+
+---
+
+## Extra safety (prevents crashes)
+
+If some files are weird/corrupt:
+
+```r
+text = purrr::map_chr(files, function(f) {
+  tryCatch(
+    paste(readLines(f, warn = FALSE), collapse = "\n"),
+    error = function(e) NA_character_
+  )
+})
+```
+
+---
+
+If it still fails, paste:
+
+* your folder structure
+* result of `list.files(...)`
+
+and I’ll pinpoint exactly what’s wrong.

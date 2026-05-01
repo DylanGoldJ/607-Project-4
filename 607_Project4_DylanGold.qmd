@@ -5,3 +5,47 @@ editor: visual
 ---
 
 # Approach
+For this project we are creating a model that can classify spam emails from emails with legitimate content(ham). \ 
+We have access to some public examples of spam and ham at https://spamassassin.apache.org/old/publiccorpus/. \
+
+My First step after unzipping the files is to look at some examples of the spam and ham. Initally I notice some things that may help identify spam. Spam often has several https mentions due to excessive amount of links. We can also look for key words that may help us identify spam vs ham. My plan is to make some sort of decision tree to help find spam vs ham. \
+We say in a previous asignment that there some ways we can analyze the results of a binary classifier. In this assignment I will try to reduce false positives (reduce the amount of ham that we call spam incorrectly). For this context I would rather get some spam mails in the main mailbox rather than accidently send important emails to the spam list.
+
+We can also try to incorporate techniques similar to our sentiment analysis in our model aswell. Certain words like prize, win, free, tend to be more common in spam messages. \
+I when I initially go through the words in both spam and ham I can count to see which words tend to be more common in each type of message.  \
+
+Another way I have looked into is using the `tidymodels` library to help create a model. I am less sure how this works but maybe I can incorporate it into the project.
+
+Import libaries.
+```{r}
+library(tidyverse)
+
+```
+Below is the importing of the data. I create a function because we do this twice.
+I used chatgpt 4.0 to create code that would let me generate the dataframes from the files.
+```{r}
+load_files <- function(path, spam){ # Give it the path and whether or not it is spam(1 = spam, 0 = ham)
+  files <- list.files(path, full.names = TRUE) # Get all the files in the path given
+  
+  data <- tibble(
+    filename = basename(files), 
+    text = map_chr(files, ~ readChar(.x, file.info(.x)$size, useBytes = TRUE)), # Loads text from the files with readChar
+    spam = spam # Label for spam
+  )
+  return (data)
+  }
+```
+
+```{r}
+ham_df <- load_files("easy_ham", 0)
+spam_df <- load_files("spam", 1)
+```
+
+We now have data frames with the spam and ham loaded in. I will split 70% of each of these spam and ham folders randomly into training data, the rest of the data to check the model. 
+Hopefully by looking at keywords like that are common in spam and other patterns like links I can create a model. I will also consider using packages like tidymodels or rpart to create a model through a decision tree or something else.
+
+
+
+
+
+
