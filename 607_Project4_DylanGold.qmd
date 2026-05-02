@@ -8,16 +8,16 @@ editor: visual
 For this project we are creating a model that can classify spam emails from emails with legitimate content(ham). \ 
 We have access to some public examples of spam and ham at https://spamassassin.apache.org/old/publiccorpus/. \
 
-My First step after unzipping the files is to look at some examples of the spam and ham. Initally I notice some things that may help identify spam. Spam often has several https mentions due to excessive amount of links. We can also look for key words that may help us identify spam vs ham. My plan is to make some sort of decision tree to help find spam vs ham. \
-We say in a previous asignment that there some ways we can analyze the results of a binary classifier. In this assignment I will try to reduce false positives (reduce the amount of ham that we call spam incorrectly). For this context I would rather get some spam mails in the main mailbox rather than accidently send important emails to the spam list.
+My First step after unzipping the files is to look at some examples of the spam and ham. Initially I notice some things that may help identify spam. Spam often has several https mentions due to excessive amount of links. We can also look for key words that may help us identify spam vs ham. My plan is to make some sort of decision tree to help find spam vs ham. \
+We say in a previous asignment that there some ways we can analyze the results of a binary classifier. In this assignment I will try to reduce false positives (reduce the amount of ham that we call spam incorrectly). For this context I would rather get some spam mails in the main mailbox rather than accidentally send important emails to the spam list.
 
-We can also try to incorporate techniques similar to our sentiment analysis in our model aswell. Certain words like prize, win, free, tend to be more common in spam messages. \
+We can also try to incorporate techniques similar to our sentiment analysis in our model as well. Certain words like prize, win, free, tend to be more common in spam messages. \
 I when I initially go through the words in both spam and ham I can count to see which words tend to be more common in each type of message.  \
 
 Another way I have looked into is using the `tidymodels` library to help create a model. I am less sure how this works but maybe I can incorporate it into the project.
 
 Import libaries.
-```{r}
+```{r, message=FALSE, warning=FALSE}
 library(tidyverse)
 
 ```
@@ -45,7 +45,63 @@ We now have data frames with the spam and ham loaded in. I will split 70% of eac
 Hopefully by looking at keywords like that are common in spam and other patterns like links I can create a model. I will also consider using packages like tidymodels or rpart to create a model through a decision tree or something else.
 
 
+# Codebase.
+Initially I decided to try a decision tree. Some other methods may include random forest (multiple decision trees) or Naive Bayes classifier. Regardless of which technique I choose, our initial step is preparing the data. I intend to use the rpart library which could use some quantitive data to help make its decisions. \
+
+I want to make a function that takes a block of text and returns a hash map of each word and its quantity. I noticed certain things like https, <div content>, that could also be turned into their own tokens for this hashmap but initially I will just split by empty space. In R I will use table. This will automatically put it into a key value pair.\
+I also modified it to handle some errors with the help of chatgpt.
+```{r}
+make_message_table <- function(msg) { # Will take a string and return it as a hashmap of all the words.
+  if (is.na(msg) || msg == "") { # Added from chatgpt. Will remove empty or na messages.
+    return(table(character(0)))
+  }
+  
+  msg <- iconv(msg, from = "", to = "UTF-8", sub = "") # Also added from chatgpt. Sometimes the email messages have invalid characters for R. We can convert it to UFT-8.
+  
+  split_msg <- strsplit(msg, "\\s+") # Split on spaces or new lines \\s+ handles both these and more
+  return(table(split_msg)) # Convert from list to a table, counting the values
+}
+
+# Test on a single spam message
+single_spam <- spam_df[[3, 2]] # 3rd message, text value
+single_spam_table<- make_message_table(single_spam) 
+# view(single_spam_table) shows me that we have something we want.
+```
+
+I will try to use rpart following an example linked at https://www.geeksforgeeks.org/machine-learning/testing-rules-generated-by-rpart-package/.\
+As I look into what it takes for rpart to make a descision tree I realize we need more processing. \
+We need each word to be a column with counts as values. \
+First I will make the table for each row
+```{r}
+all_df <-  rbind(spam_df, ham_df)
+processed_df <- all_df %>%
+  rowwise() %>% # Rowwise operation
+  mutate(word_table = list(make_message_table(text))) %>% # Create new column with function from earlier
+  ungroup()
+``` 
+
+Just putting each word in would be bad for processing of the decision tree. I asked chatgpt how we could filter the data before converting it into a matrix.\
+We can first get all the word frequency overall. With this we can filter for words that appeared more than once. Use this to adjust the processed data frame which finally is converted into a matrix which we can use for rpart.
+```{r}
+word_freq <- table(unlist(lapply(processed_df$word_table, names))) # By using lapply on the tables, with names for getting the key in the table we can get all the words.
+keep_words <- names(word_freq[word_freq >= 2]) # Remove words that only appear once. Things like specific names or random links will be removed which is good.
+# We go from 138747 to 48845 elements with this removal
+processed_df$word_table <- lapply(processed_df$word_table, function(tab) { # We are applying this function to the each table we created earlier.
+  tab[names(tab) %in% keep_words] # We are just making it so we only keep keys in which we have a keep words for.
+})
+```
+
+After using `view(processed_df[[3,4]])` we can see that the size of the table decreased from the single_spam_table I showed earlier. 
+Our way of removing uncommon words helped by removing single instances of words, but another thing we could do to further filter is remove words that only appear in a single message(even if they appear multiple times). There are many ways we could work on the preproccessing but for now this is alright.\
 
 
+Now we can create a matrix that we can pass to rpart. 
+```{r}
+all_words <- keep_words
 
-
+feature_matrix <- t(sapply(df$word_table, function(tab) {
+  vec <- setNames(rep(0, length(all_words)), all_words)
+  vec[names(tab)] <- as.numeric(tab)
+  vec
+}))
+```
