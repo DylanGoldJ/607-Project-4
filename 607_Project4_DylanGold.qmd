@@ -62,13 +62,13 @@ make_message_table <- function(msg) { # Will take a string and return it as a ha
   # I came back here to here make the parsing more strict on what is kept.
   msg <- tolower(msg) # Make everything lowercase so things like Free and free are the same.
   
-
+  # Use gsub to remove certain
   msg <- gsub("[[:punct:]]", " ", msg) # Remove punctuation
   msg <- gsub("[0-9]+", " ", msg) # Remove numbers
   msg <- gsub("\\s+", " ", msg) # Remove extra whitespace
   msg <- trimws(msg)                        # trim ends
   
-  split_msg <- strsplit(msg, "\\s+") # Split on spaces or new lines \\s+ handles both these and more
+  split_msg <- strsplit(msg, "\\s+") # Split on spaces or new lines \\s+ 
   
 
   
@@ -113,7 +113,7 @@ We will just use the training data for this.
 colnames(train_df) <- make.names(colnames(train_df), unique =  TRUE) # Get rid of invalid characters in the column names of train_df
 
 word_freq <- table(unlist(lapply(train_df$word_table, names))) # By using lapply on the tables, with names for getting the key in the table we can get all the words.
-keep_words <- names(word_freq[word_freq >= 10]) # Remove words that don't appear often. Things like specific names or random links will be removed which is good.
+keep_words <- names(word_freq[word_freq >= 10]) # Remove words that don't appear often. Things like specific names or random links will be removed which is good. 10 is arbitrary
 
 train_df$word_table <- lapply(train_df$word_table, function(tab) { # We are applying this function to the each table we created earlier.
   tab <- tab[names(tab) %in% keep_words] # We are just making it so we only keep keys in which we have a keep words for.
@@ -160,12 +160,12 @@ test_feature_list <- lapply(test_df$word_table, function(tab) { # We are applyin
   
   vec <- setNames(rep(0, length(train_cols)), train_cols) # We are getting the names from the train_cols, originally the df_features we trained on.
   
-  if (!is.null(tab) && length(tab) > 0) {
-    common <- intersect(names(tab), train_cols)
-    vec[common] <- as.numeric(tab[common])
+  if (!is.null(tab) && length(tab) > 0) { # When the row value is not null or empty
+    common <- intersect(names(tab), train_cols) # intersect the names in the test data and the column names of the training data
+    vec[common] <- as.numeric(tab[common]) # save the values that were intersected in vec
   }
   
-  vec
+  vec # return
 })
 
 test_matrix <- as.data.frame(do.call(rbind, test_feature_list))
@@ -173,6 +173,7 @@ test_matrix <- as.data.frame(do.call(rbind, test_feature_list))
 
 We can run the model
 ```{r}
+# Predict with the model and the text matrix we just made
 predictions <- predict(model, test_matrix, type = "class")
 ```
 
@@ -183,3 +184,19 @@ After making these changes I got something much more accurate.
 table(Predicted = predictions, Actual = test_df$spam)
 mean(predictions == test_df$spam)
 ```
+We can see that our model is very accurate. \
+Our model predicted it was spam when it was not (false positive) 4 times. \
+Our model predicted it was ham when it spam 9 times (false negative) \
+We can also calculate the precision and recall.\
+```{r}
+precision <- 141 /(141 + 4)
+recall <- 141/(141 + 9)
+
+precision
+recall
+```
+Because we care more about trying to minimize false positives(calling something spam when it is not) I would care more about precision in this model and luckily this model has a very high precision.
+
+
+# Conclusion
+We were able to create a model for detecting spam vs ham. We had large samples of text for both spam and ham. Initially when parsing it I did not clean out garbage information which made the model detect everything as spam. By making sure the prepossessed information was good for the model I was able to create a model that was very accurate and had good precision. I made the prepossessed data better by get rid of information that would probably just confuse the model and making sure that things like free!! and FREE were treated as the same word. After prepossessing I was able to use rpart to create a decision tree. Some ways I could improve on this project are to look at other ways of creating a model. Theoretically I could pass the proccessed information through something like a bayes classifier. I could also adjust this model by trying to maximize precision(get no false positives) even at the cost of seeing more false negatives.
