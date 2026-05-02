@@ -19,6 +19,7 @@ Another way I have looked into is using the `tidymodels` library to help create 
 Import libaries.
 ```{r, message=FALSE, warning=FALSE}
 library(tidyverse)
+library(rpart) # Library for creating descision trees
 
 ```
 Below is the importing of the data. I create a function because we do this twice.
@@ -58,14 +59,27 @@ make_message_table <- function(msg) { # Will take a string and return it as a ha
   
   msg <- iconv(msg, from = "", to = "UTF-8", sub = "") # Also added from chatgpt. Sometimes the email messages have invalid characters for R. We can convert it to UFT-8.
   
+  # I came back here to here make the parsing more strict on what is kept.
+  msg <- tolower(msg) # Make everything lowercase so things like Free and free are the same.
+  
+
+  msg <- gsub("[[:punct:]]", " ", msg) # Remove punctuation
+  msg <- gsub("[0-9]+", " ", msg) # Remove numbers
+  msg <- gsub("\\s+", " ", msg) # Remove extra whitespace
+  msg <- trimws(msg)                        # trim ends
+  
   split_msg <- strsplit(msg, "\\s+") # Split on spaces or new lines \\s+ handles both these and more
+  
+
+  
+  
   return(table(split_msg)) # Convert from list to a table, counting the values
 }
 
 # Test on a single spam message
 single_spam <- spam_df[[3, 2]] # 3rd message, text value
 single_spam_table<- make_message_table(single_spam) 
-# view(single_spam_table) shows me that we have something we want.
+# view(single_spam_table) shows me it worked
 ```
 
 I will try to use rpart following an example linked at https://www.geeksforgeeks.org/machine-learning/testing-rules-generated-by-rpart-package/.\
@@ -80,28 +94,92 @@ processed_df <- all_df %>%
   ungroup()
 ``` 
 
-Just putting each word in would be bad for processing of the decision tree. I asked chatgpt how we could filter the data before converting it into a matrix.\
-We can first get all the word frequency overall. With this we can filter for words that appeared more than once. Use this to adjust the processed data frame which finally is converted into a matrix which we can use for rpart.
+Before preparing the data to be used for a model we need to split it into a testing and training set. \
+We can do this with the sample function. 
 ```{r}
-word_freq <- table(unlist(lapply(processed_df$word_table, names))) # By using lapply on the tables, with names for getting the key in the table we can get all the words.
-keep_words <- names(word_freq[word_freq >= 2]) # Remove words that only appear once. Things like specific names or random links will be removed which is good.
-# We go from 138747 to 48845 elements with this removal
-processed_df$word_table <- lapply(processed_df$word_table, function(tab) { # We are applying this function to the each table we created earlier.
-  tab[names(tab) %in% keep_words] # We are just making it so we only keep keys in which we have a keep words for.
-})
+set.seed(1212) # Set seed for sample
+
+train_index <- sample(1:nrow(all_df), 0.7 * nrow(all_df)) # Sample will give us the indexing in this case. We use 1:nrow() to get the full range of indexes, then .7 of this for the size
+# Note the train_index is a list of indexes not the because we used :
+
+train_df <- processed_df[train_index, ] #get values at the training indexes
+test_df  <- processed_df[-train_index, ] #get values not at the training indexes
 ```
 
-After using `view(processed_df[[3,4]])` we can see that the size of the table decreased from the single_spam_table I showed earlier. 
-Our way of removing uncommon words helped by removing single instances of words, but another thing we could do to further filter is remove words that only appear in a single message(even if they appear multiple times). There are many ways we could work on the preproccessing but for now this is alright.\
+Just putting each word in would be bad for processing of the decision tree. I asked chatgpt how we could filter the data before converting it into a matrix.\
+We can first get all the word frequency overall. With this we can filter for words that appeared more than once. Use this to adjust the processed data frame which finally is converted into a matrix which we can use for rpart.\
+We will just use the training data for this. 
+```{r}
+colnames(train_df) <- make.names(colnames(train_df), unique =  TRUE) # Get rid of invalid characters in the column names of train_df
 
+word_freq <- table(unlist(lapply(train_df$word_table, names))) # By using lapply on the tables, with names for getting the key in the table we can get all the words.
+keep_words <- names(word_freq[word_freq >= 10]) # Remove words that don't appear often. Things like specific names or random links will be removed which is good.
 
-Now we can create a matrix that we can pass to rpart. 
+train_df$word_table <- lapply(train_df$word_table, function(tab) { # We are applying this function to the each table we created earlier.
+  tab <- tab[names(tab) %in% keep_words] # We are just making it so we only keep keys in which we have a keep words for.
+  tab # Return the table 
+})
+
+```
+
+Our way of removing uncommon words helped by removing single instances of words, but another thing we could do to further filter is remove words that only appear in a single message(even if they appear multiple times). There are many ways we could work on the prepossessing but for now I will see how well this version does.
 ```{r}
 all_words <- keep_words
-
-feature_matrix <- t(sapply(df$word_table, function(tab) {
-  vec <- setNames(rep(0, length(all_words)), all_words)
-  vec[names(tab)] <- as.numeric(tab)
+feature_matrix <- t(sapply(train_df$word_table, function(tab) { # sapply is the same as left but returns a matrix.
+  vec <- setNames(rep(0, length(all_words)), all_words) # Set the name of each column as each word we have
+  vec[names(tab)] <- as.numeric(tab) #  The values are the actual values
   vec
 }))
+```
+
+We have now created a matrix for the model. The model can use a dataframe so we can convert it back into a dataframe.\
+There were some errors because of the invalid column names. use the make.names again and remove ..., empty and na column names.
+
+```{r}
+df_features <- as.data.frame(feature_matrix) # convert the features to a dataframe
+colnames(df_features) <- make.names(colnames(df_features), unique = TRUE)
+df_features <- df_features[, colnames(df_features) != "..." &
+                              colnames(df_features) != "" &
+                              !is.na(colnames(df_features))]
+```
+
+We can now create the model. 
+```{r}
+df_features$spam <- as.factor(train_df$spam) # Turn spam into a factor
+feature_matrix <- feature_matrix / rowSums(feature_matrix)
+# Plug in spam as the y, rest as x with .
+model <- rpart(spam ~ ., data = df_features, method = "class")
+```
+To actually test the model we need to turn our testing data into a valid format.\
+The test data should have the same columns as the training data. \
+I used chatgpt to help generate this.
+
+```{r}
+train_cols <- colnames(df_features)[colnames(df_features) != "spam"] # Get the feature columns(ignore the label, spam)
+test_feature_list <- lapply(test_df$word_table, function(tab) { # We are applying this function to the test_df now
+  
+  vec <- setNames(rep(0, length(train_cols)), train_cols) # We are getting the names from the train_cols, originally the df_features we trained on.
+  
+  if (!is.null(tab) && length(tab) > 0) {
+    common <- intersect(names(tab), train_cols)
+    vec[common] <- as.numeric(tab[common])
+  }
+  
+  vec
+})
+
+test_matrix <- as.data.frame(do.call(rbind, test_feature_list))
+```
+
+We can run the model
+```{r}
+predictions <- predict(model, test_matrix, type = "class")
+```
+
+These are the results, when I initially ran it I got everything classified as spam.\
+I decided to go back to the parsing of the text because I used a very basic just split when I need to do things like remove punctuation, case sensitive and such.
+After making these changes I got something much more accurate.
+```{r}
+table(Predicted = predictions, Actual = test_df$spam)
+mean(predictions == test_df$spam)
 ```
